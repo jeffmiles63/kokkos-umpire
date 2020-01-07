@@ -70,9 +70,13 @@
 
 namespace Kokkos {
 
-/* Default allocation mechanism */
-UmpireSpace::UmpireSpace() {
+umpire::Allocator UmpireSpace::get_allocator(const char *name) {
+  auto &rm = umpire::ResourceManager::getInstance();
+  return rm.getAllocator(name);
 }
+
+/* Default allocation mechanism */
+UmpireSpace::UmpireSpace() : m_AllocatorName("HOST") {}
 
 void *UmpireSpace::allocate(const size_t arg_alloc_size) const {
   static_assert(sizeof(void *) == sizeof(uintptr_t),
@@ -88,24 +92,25 @@ void *UmpireSpace::allocate(const size_t arg_alloc_size) const {
   void *ptr = nullptr;
 
   if (arg_alloc_size) {
-      // Over-allocate to and round up to guarantee proper alignment.
-      size_t size_padded = arg_alloc_size + sizeof(void *) + alignment;
+    // Over-allocate to and round up to guarantee proper alignment.
+    size_t size_padded = arg_alloc_size + sizeof(void *) + alignment;
 
-      void *alloc_ptr = malloc(size_padded);
+    auto allocator  = get_allocator(m_AllocatorName);
+    void *alloc_ptr = allocator.allocate(size_padded);
 
-      if (alloc_ptr) {
-        auto address = reinterpret_cast<uintptr_t>(alloc_ptr);
+    if (alloc_ptr) {
+      auto address = reinterpret_cast<uintptr_t>(alloc_ptr);
 
-        // offset enough to record the alloc_ptr
-        address += sizeof(void *);
-        uintptr_t rem    = address % alignment;
-        uintptr_t offset = rem ? (alignment - rem) : 0u;
-        address += offset;
-        ptr = reinterpret_cast<void *>(address);
-        // record the alloc'd pointer
-        address -= sizeof(void *);
-        *reinterpret_cast<void **>(address) = alloc_ptr;
-      }
+      // offset enough to record the alloc_ptr
+      address += sizeof(void *);
+      uintptr_t rem    = address % alignment;
+      uintptr_t offset = rem ? (alignment - rem) : 0u;
+      address += offset;
+      ptr = reinterpret_cast<void *>(address);
+      // record the alloc'd pointer
+      address -= sizeof(void *);
+      *reinterpret_cast<void **>(address) = alloc_ptr;
+    }
   }
 
   if ((ptr == nullptr) || (reinterpret_cast<uintptr_t>(ptr) == ~uintptr_t(0)) ||
@@ -120,17 +125,18 @@ void *UmpireSpace::allocate(const size_t arg_alloc_size) const {
 
     throw Kokkos::Experimental::RawMemoryAllocationFailure(
         arg_alloc_size, alignment, failure_mode,
-        Experimental::RawMemoryAllocationFailure::AllocationMechanism::StdMalloc);
+        Experimental::RawMemoryAllocationFailure::AllocationMechanism::
+            StdMalloc);
   }
 
   return ptr;
 }
 
-void UmpireSpace::deallocate(void *const arg_alloc_ptr, const size_t
-                           ) const {
+void UmpireSpace::deallocate(void *const arg_alloc_ptr, const size_t) const {
   if (arg_alloc_ptr) {
-      void *alloc_ptr = *(reinterpret_cast<void **>(arg_alloc_ptr) - 1);
-      free(alloc_ptr);
+    void *alloc_ptr = *(reinterpret_cast<void **>(arg_alloc_ptr) - 1);
+    auto allocator  = get_allocator(m_AllocatorName);
+    allocator.deallocate(alloc_ptr);
   }
 }
 
@@ -269,9 +275,9 @@ SharedAllocationRecord<Kokkos::UmpireSpace, void>::get_record(void *alloc_ptr) {
       head ? static_cast<RecordHost *>(head->m_record) : (RecordHost *)0;
 
   if (!alloc_ptr || record->m_alloc_ptr != head) {
-    Kokkos::Impl::throw_runtime_exception(
-        std::string("Kokkos::Impl::SharedAllocationRecord< Kokkos::UmpireSpace , "
-                    "void >::get_record ERROR"));
+    Kokkos::Impl::throw_runtime_exception(std::string(
+        "Kokkos::Impl::SharedAllocationRecord< Kokkos::UmpireSpace , "
+        "void >::get_record ERROR"));
   }
 
   return record;
@@ -293,6 +299,6 @@ void SharedAllocationRecord<Kokkos::UmpireSpace, void>::print_records(
 }
 #endif
 
-} // Impl
+}  // namespace Impl
 
-} // Kokkos
+}  // namespace Kokkos

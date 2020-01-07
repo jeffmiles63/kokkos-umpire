@@ -58,6 +58,8 @@
 #include <impl/Kokkos_Error.hpp>
 #include <impl/Kokkos_SharedAlloc.hpp>
 
+#include "umpire/ResourceManager.hpp"
+#include "umpire/Allocator.hpp"
 /*--------------------------------------------------------------------------*/
 
 namespace Kokkos {
@@ -111,7 +113,7 @@ class UmpireSpace {
   UmpireSpace(const UmpireSpace& rhs) = default;
   UmpireSpace& operator=(UmpireSpace&&) = default;
   UmpireSpace& operator=(const UmpireSpace&) = default;
-  ~UmpireSpace()                           = default;
+  ~UmpireSpace()                             = default;
 
   /**\brief  Allocate untracked memory in the space */
   void* allocate(const size_t arg_alloc_size) const;
@@ -122,8 +124,11 @@ class UmpireSpace {
   /**\brief Return Name of the MemorySpace */
   static constexpr const char* name() { return m_name; }
 
+  static umpire::Allocator get_allocator(const char* name);
+
  private:
-  static constexpr const char* m_name = "Host";
+  const char* m_AllocatorName;
+  static constexpr const char* m_name = "Umpire";
   friend class Kokkos::Impl::SharedAllocationRecord<Kokkos::UmpireSpace, void>;
 };
 
@@ -134,7 +139,6 @@ class UmpireSpace {
 namespace Kokkos {
 
 namespace Impl {
-
 
 template <>
 struct MemorySpaceAccess<Kokkos::HostSpace, Kokkos::UmpireSpace> {
@@ -174,7 +178,8 @@ class SharedAllocationRecord<Kokkos::UmpireSpace, void>
   static void deallocate(RecordBase*);
 
 #ifdef KOKKOS_DEBUG
-  /**\brief  Root record for tracked allocations from this UmpireSpace instance */
+  /**\brief  Root record for tracked allocations from this UmpireSpace instance
+   */
   static RecordBase s_root_record;
 #endif
 
@@ -235,7 +240,7 @@ namespace Impl {
 template <class ExecutionSpace>
 struct DeepCopy<Kokkos::UmpireSpace, Kokkos::HostSpace, ExecutionSpace> {
   DeepCopy(void* dst, const void* src, size_t n) {
-     // Perform deep copy from host to umpire
+    // Perform deep copy from host to umpire
   }
 
   DeepCopy(const ExecutionSpace& exec, void* dst, const void* src, size_t n) {
@@ -248,7 +253,7 @@ struct DeepCopy<Kokkos::UmpireSpace, Kokkos::HostSpace, ExecutionSpace> {
 template <class ExecutionSpace>
 struct DeepCopy<Kokkos::HostSpace, Kokkos::UmpireSpace, ExecutionSpace> {
   DeepCopy(void* dst, const void* src, size_t n) {
-     // Perform Deep Copy from umpire to host
+    // Perform Deep Copy from umpire to host
   }
 
   DeepCopy(const ExecutionSpace& exec, void* dst, const void* src, size_t n) {
@@ -261,7 +266,7 @@ struct DeepCopy<Kokkos::HostSpace, Kokkos::UmpireSpace, ExecutionSpace> {
 template <class ExecutionSpace>
 struct DeepCopy<Kokkos::UmpireSpace, Kokkos::UmpireSpace, ExecutionSpace> {
   DeepCopy(void* dst, const void* src, size_t n) {
-     // Perform deep copy from host to umpire
+    // Perform deep copy from host to umpire
   }
 
   DeepCopy(const ExecutionSpace& exec, void* dst, const void* src, size_t n) {
