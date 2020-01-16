@@ -70,6 +70,15 @@
 
 namespace Kokkos {
 
+namespace Impl {
+
+   void umpire_deep_copy ( void * dst, const void * src, size_t n) {
+      auto &rm = umpire::ResourceManager::getInstance();
+
+      rm.copy(dst, (void*)src);
+   }
+}
+
 umpire::Allocator UmpireSpace::get_allocator(const char *name) {
   auto &rm = umpire::ResourceManager::getInstance();
   return rm.getAllocator(name);

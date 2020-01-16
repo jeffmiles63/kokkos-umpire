@@ -64,6 +64,12 @@
 
 namespace Kokkos {
 
+namespace Impl {
+
+   void umpire_deep_copy( void *, const void *, size_t );
+
+}
+
 /// \class UmpireSpace
 /// \brief Memory management for host memory.
 ///
@@ -72,37 +78,9 @@ namespace Kokkos {
 class UmpireSpace {
  public:
   //! Tag this class as a kokkos memory space
-  typedef UmpireSpace memory_space;
-  typedef size_t size_type;
-
-  /// \typedef execution_space
-  /// \brief Default execution space for this memory space.
-  ///
-  /// Every memory space has a default execution space.  This is
-  /// useful for things like initializing a View (which happens in
-  /// parallel using the View's default execution space).
-#if defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_OPENMP)
-  typedef Kokkos::OpenMP execution_space;
-#elif defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_THREADS)
-  typedef Kokkos::Threads execution_space;
-#elif defined(KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_HPX)
-  typedef Kokkos::Experimental::HPX execution_space;
-//#elif defined( KOKKOS_ENABLE_DEFAULT_DEVICE_TYPE_QTHREADS )
-//  typedef Kokkos::Qthreads  execution_space;
-#elif defined(KOKKOS_ENABLE_OPENMP)
-  typedef Kokkos::OpenMP execution_space;
-#elif defined(KOKKOS_ENABLE_THREADS)
-  typedef Kokkos::Threads execution_space;
-//#elif defined( KOKKOS_ENABLE_QTHREADS )
-//  typedef Kokkos::Qthreads  execution_space;
-#elif defined(KOKKOS_ENABLE_HPX)
-  typedef Kokkos::Experimental::HPX execution_space;
-#elif defined(KOKKOS_ENABLE_SERIAL)
-  typedef Kokkos::Serial execution_space;
-#else
-#error \
-    "At least one of the following host execution spaces must be defined: Kokkos::OpenMP, Kokkos::Threads, Kokkos::Qthreads, or Kokkos::Serial.  You might be seeing this message if you disabled the Kokkos::Serial device explicitly using the Kokkos_ENABLE_Serial:BOOL=OFF CMake option, but did not enable any of the other host execution space devices."
-#endif
+  using memory_space = UmpireSpace;
+  using size_type = size_t;
+  using execution_space = Kokkos::DefaultExecutionSpace;
 
   //! This memory space preferred device_type
   typedef Kokkos::Device<execution_space, memory_space> device_type;
@@ -125,6 +103,20 @@ class UmpireSpace {
   static constexpr const char* name() { return m_name; }
 
   static umpire::Allocator get_allocator(const char* name);
+
+  template<class MemorySpace>
+  static inline const char * umpire_space_name(const MemorySpace & default_device) {
+     if ( std::is_same<MemorySpace, Kokkos::HostSpace>::value )
+        return "HOST";
+#if defined(KOKKOS_ENABLE_CUDA)
+     if ( std::is_same<MemorySpace, Kokkos::CudaSpace>::value )
+        return "DEVICE";
+     if ( std::is_same<MemorySpace, Kokkos::CudaUVMSpace>::value )
+        return "UM";
+     if ( std::is_same<MemorySpace, Kokkos::CudaHostPinnedSpace>::value )
+        return "HOSTPINNED";
+#endif
+  }
 
  private:
   const char* m_AllocatorName;
@@ -240,12 +232,12 @@ namespace Impl {
 template <class ExecutionSpace>
 struct DeepCopy<Kokkos::UmpireSpace, Kokkos::HostSpace, ExecutionSpace> {
   DeepCopy(void* dst, const void* src, size_t n) {
-    // Perform deep copy from host to umpire
+    umpire_deep_copy(dst, src, n);
   }
 
   DeepCopy(const ExecutionSpace& exec, void* dst, const void* src, size_t n) {
     exec.fence();
-    // Perform deep copy from host to umpire
+    umpire_deep_copy(dst, src, n);
     exec.fence();
   }
 };
@@ -253,12 +245,12 @@ struct DeepCopy<Kokkos::UmpireSpace, Kokkos::HostSpace, ExecutionSpace> {
 template <class ExecutionSpace>
 struct DeepCopy<Kokkos::HostSpace, Kokkos::UmpireSpace, ExecutionSpace> {
   DeepCopy(void* dst, const void* src, size_t n) {
-    // Perform Deep Copy from umpire to host
+    umpire_deep_copy(dst, src, n);
   }
 
   DeepCopy(const ExecutionSpace& exec, void* dst, const void* src, size_t n) {
     exec.fence();
-    // Perform Deep Copy from umpire to host
+    umpire_deep_copy(dst, src, n);
     exec.fence();
   }
 };
@@ -266,12 +258,12 @@ struct DeepCopy<Kokkos::HostSpace, Kokkos::UmpireSpace, ExecutionSpace> {
 template <class ExecutionSpace>
 struct DeepCopy<Kokkos::UmpireSpace, Kokkos::UmpireSpace, ExecutionSpace> {
   DeepCopy(void* dst, const void* src, size_t n) {
-    // Perform deep copy from host to umpire
+    umpire_deep_copy(dst, src, n);
   }
 
   DeepCopy(const ExecutionSpace& exec, void* dst, const void* src, size_t n) {
     exec.fence();
-    // Perform deep copy from host to umpire
+    umpire_deep_copy(dst, src, n);
     exec.fence();
   }
 };

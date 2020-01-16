@@ -51,3 +51,5 @@ TEST(TEST_CATEGORY, umpire_space_shared_alloc) {
 }
 
 }  // namespace Test
+
+#include <TestUmpireAllocators.hpp>
