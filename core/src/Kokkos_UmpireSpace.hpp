@@ -86,6 +86,8 @@ class UmpireSpace {
   typedef Kokkos::Device<execution_space, memory_space> device_type;
 
   /**\brief  Default memory space instance */
+  explicit UmpireSpace(const char * name_) : m_AllocatorName(name_) {
+  }
   UmpireSpace();
   UmpireSpace(UmpireSpace&& rhs)      = default;
   UmpireSpace(const UmpireSpace& rhs) = default;
@@ -118,6 +120,10 @@ class UmpireSpace {
 #endif
   }
 
+  bool is_host_accessible_space() const {
+     return ( strncmp( m_AllocatorName, "HOST", 4 ) == 0 );
+  }
+
  private:
   const char* m_AllocatorName;
   static constexpr const char* m_name = "Umpire";
@@ -135,14 +141,28 @@ namespace Impl {
 template <>
 struct MemorySpaceAccess<Kokkos::HostSpace, Kokkos::UmpireSpace> {
   enum { assignable = false };
-  enum { accessible = false };
+  enum { accessible = true };
   enum { deepcopy = true };
 };
 
 template <>
 struct MemorySpaceAccess<Kokkos::UmpireSpace, Kokkos::HostSpace> {
   enum { assignable = false };
-  enum { accessible = false };
+  enum { accessible = true };
+  enum { deepcopy = true };
+};
+
+template <>
+struct MemorySpaceAccess<Kokkos::CudaSpace, Kokkos::UmpireSpace> {
+  enum { assignable = false };
+  enum { accessible = true };
+  enum { deepcopy = true };
+};
+
+template <>
+struct MemorySpaceAccess<Kokkos::UmpireSpace, Kokkos::CudaSpace> {
+  enum { assignable = false };
+  enum { accessible = true };
   enum { deepcopy = true };
 };
 
@@ -187,9 +207,7 @@ class SharedAllocationRecord<Kokkos::UmpireSpace, void>
       const RecordBase::function_type arg_dealloc = &deallocate);
 
  public:
-  inline std::string get_label() const {
-    return std::string(RecordBase::head()->m_label);
-  }
+  std::string get_label() const;
 
   KOKKOS_INLINE_FUNCTION static SharedAllocationRecord* allocate(
       const Kokkos::UmpireSpace& arg_space, const std::string& arg_label,
