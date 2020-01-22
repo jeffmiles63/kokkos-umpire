@@ -66,7 +66,9 @@ namespace Kokkos {
 
 namespace Impl {
 
-   void umpire_deep_copy( void *, const void *, size_t );
+   void umpire_to_umpire_deep_copy( void *, const void *, size_t, bool offset = true );
+   void host_to_umpire_deep_copy( void *, const void *, size_t, bool offset = true );
+   void umpire_to_host_deep_copy( void *, const void *, size_t, bool offset = true );
 
 }
 
@@ -250,12 +252,12 @@ namespace Impl {
 template <class ExecutionSpace>
 struct DeepCopy<Kokkos::UmpireSpace, Kokkos::HostSpace, ExecutionSpace> {
   DeepCopy(void* dst, const void* src, size_t n) {
-    umpire_deep_copy(dst, src, n);
+    host_to_umpire_deep_copy(dst, src, n);
   }
 
   DeepCopy(const ExecutionSpace& exec, void* dst, const void* src, size_t n) {
     exec.fence();
-    umpire_deep_copy(dst, src, n);
+    host_to_umpire_deep_copy(dst, src, n);
     exec.fence();
   }
 };
@@ -263,12 +265,12 @@ struct DeepCopy<Kokkos::UmpireSpace, Kokkos::HostSpace, ExecutionSpace> {
 template <class ExecutionSpace>
 struct DeepCopy<Kokkos::HostSpace, Kokkos::UmpireSpace, ExecutionSpace> {
   DeepCopy(void* dst, const void* src, size_t n) {
-    umpire_deep_copy(dst, src, n);
+    umpire_to_host_deep_copy(dst, src, n);
   }
 
   DeepCopy(const ExecutionSpace& exec, void* dst, const void* src, size_t n) {
     exec.fence();
-    umpire_deep_copy(dst, src, n);
+    umpire_to_host_deep_copy(dst, src, n);
     exec.fence();
   }
 };
@@ -276,12 +278,12 @@ struct DeepCopy<Kokkos::HostSpace, Kokkos::UmpireSpace, ExecutionSpace> {
 template <class ExecutionSpace>
 struct DeepCopy<Kokkos::UmpireSpace, Kokkos::UmpireSpace, ExecutionSpace> {
   DeepCopy(void* dst, const void* src, size_t n) {
-    umpire_deep_copy(dst, src, n);
+    umpire_to_umpire_deep_copy(dst, src, n);
   }
 
   DeepCopy(const ExecutionSpace& exec, void* dst, const void* src, size_t n) {
     exec.fence();
-    umpire_deep_copy(dst, src, n);
+    umpire_to_umpire_deep_copy(dst, src, n);
     exec.fence();
   }
 };

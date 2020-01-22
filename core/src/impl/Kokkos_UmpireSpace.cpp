@@ -65,6 +65,8 @@
 #include <impl/Kokkos_Error.hpp>
 #include <Kokkos_Atomic.hpp>
 
+#include "umpire/op/MemoryOperationRegistry.hpp"
+
 //----------------------------------------------------------------------------
 //----------------------------------------------------------------------------
 
@@ -72,12 +74,137 @@ namespace Kokkos {
 
 namespace Impl {
 
-   void umpire_deep_copy ( void * dst, const void * src, size_t n) {
+   void umpire_to_umpire_deep_copy ( void * dst, const void * src, size_t size, bool offset) {
       auto &rm = umpire::ResourceManager::getInstance();
+      auto& op_registry = umpire::op::MemoryOperationRegistry::getInstance();
 
-      rm.copy(dst, (void*)src);
+      Kokkos::Impl::SharedAllocationHeader * dst_header = 
+                     (Kokkos::Impl::SharedAllocationHeader*)dst;
+
+      Kokkos::Impl::SharedAllocationHeader * src_header = 
+                     (Kokkos::Impl::SharedAllocationHeader*)src;
+
+      if ( offset ) {
+         src_header -= 1;
+         dst_header -= 1;
+      }
+
+      auto src_alloc_record = rm.findAllocationRecord(src_header);
+      std::ptrdiff_t src_offset = reinterpret_cast<char*>(src_header) - 
+                                  reinterpret_cast<char*>(src_alloc_record->ptr) +
+                                  offset ? sizeof(Kokkos::Impl::SharedAllocationHeader) : 0;
+
+      std::size_t src_size = src_alloc_record->size - src_offset;
+
+      auto dst_alloc_record = rm.findAllocationRecord(dst_header);
+      std::ptrdiff_t dst_offset = reinterpret_cast<char*>(dst_header) - 
+                                  reinterpret_cast<char*>(dst_alloc_record->ptr) +
+                                  offset ? sizeof(Kokkos::Impl::SharedAllocationHeader) : 0;
+
+      std::size_t dst_size = dst_alloc_record->size - dst_offset;
+
+      UMPIRE_REPLAY(
+          R"( "event": "copy", "payload": { "src": ")"
+          << src_header
+          << R"(", src_offset: ")"
+          << src_offset
+          << R"(", "dest": ")"
+          << dst_header
+          << R"(", dst_offset: ")"
+          << dst_offset
+          << R"(",  "size": )"
+          << size
+          << R"(, "src_allocator_ref": ")"
+          << src_alloc_record->strategy
+          << R"(", "dst_allocator_ref": ")"
+          << dst_alloc_record->strategy
+          << R"(" } )"
+      );
+
+      if (size > src_size) {
+         UMPIRE_ERROR("Copy asks for more that resides in source copy: " << size << " -> " << src_size);
+      }
+
+      if (size > dst_size) {
+         UMPIRE_ERROR("Not enough resource in destination for copy: " << size << " -> " << dst_size);
+      }
+
+      auto op = op_registry.find("COPY",
+         src_alloc_record->strategy,
+         dst_alloc_record->strategy);
+
+      op->transform(const_cast<void*>(src), &dst, 
+                    const_cast<umpire::util::AllocationRecord*>(src_alloc_record), 
+                    const_cast<umpire::util::AllocationRecord*>(dst_alloc_record), 
+                    size);
    }
-}
+
+   void host_to_umpire_deep_copy ( void * dst, const void * src, size_t size, bool offset) {
+      auto &rm = umpire::ResourceManager::getInstance();
+      auto& op_registry = umpire::op::MemoryOperationRegistry::getInstance();
+      auto hostAllocator = rm.getAllocator("HOST");
+
+      Kokkos::Impl::SharedAllocationHeader * dst_header = 
+                     (Kokkos::Impl::SharedAllocationHeader*)dst;
+      if (offset) dst_header -= 1;
+
+      auto dst_alloc_record = rm.findAllocationRecord(dst_header);
+      std::ptrdiff_t dst_offset = reinterpret_cast<char*>(dst_header) - 
+                                  reinterpret_cast<char*>(dst_alloc_record->ptr) +
+                                  offset ? sizeof(Kokkos::Impl::SharedAllocationHeader) : 0;
+
+      std::size_t dst_size = dst_alloc_record->size - dst_offset;
+
+      if (size > dst_size) {
+         UMPIRE_ERROR("Copy asks for more that will fit in the destination: " << size << " -> " << dst_size);
+      }
+
+      umpire::util::AllocationRecord src_alloc_record{
+        nullptr, size, hostAllocator.getAllocationStrategy()};
+
+      auto op = op_registry.find("COPY",
+         src_alloc_record.strategy,
+         dst_alloc_record->strategy);
+
+      op->transform(const_cast<void*>(src), &dst, 
+                    const_cast<umpire::util::AllocationRecord*>(&src_alloc_record), 
+                    const_cast<umpire::util::AllocationRecord*>(dst_alloc_record), 
+                    size);
+   }
+
+   void umpire_to_host_deep_copy ( void * dst, const void * src, size_t size, bool offset) {
+      auto &rm = umpire::ResourceManager::getInstance();
+      auto& op_registry = umpire::op::MemoryOperationRegistry::getInstance();
+      auto hostAllocator = rm.getAllocator("HOST");
+
+      Kokkos::Impl::SharedAllocationHeader * src_header = 
+                     (Kokkos::Impl::SharedAllocationHeader*)src;
+      if (offset) src_header -= 1;
+
+      auto src_alloc_record = rm.findAllocationRecord(src_header);
+      std::ptrdiff_t src_offset = reinterpret_cast<char*>(src_header) - 
+                                  reinterpret_cast<char*>(src_alloc_record->ptr) +
+                                  offset ? sizeof(Kokkos::Impl::SharedAllocationHeader) : 0;
+
+      std::size_t src_size = src_alloc_record->size - src_offset;
+
+      if (size > src_size) {
+         UMPIRE_ERROR("Copy asks for more that resides in source copy: " << size << " -> " << src_size);
+      }
+
+      umpire::util::AllocationRecord dst_alloc_record{
+        nullptr, size, hostAllocator.getAllocationStrategy()};
+
+      auto op = op_registry.find("COPY",
+         src_alloc_record->strategy,
+         dst_alloc_record.strategy);
+
+      op->transform(const_cast<void*>(src), &dst, 
+                    const_cast<umpire::util::AllocationRecord*>(src_alloc_record), 
+                    const_cast<umpire::util::AllocationRecord*>(&dst_alloc_record), 
+                    size);
+   }
+}  // Impl namespace
 
 umpire::Allocator UmpireSpace::get_allocator(const char *name) {
   auto &rm = umpire::ResourceManager::getInstance();
@@ -190,8 +317,8 @@ std::string SharedAllocationRecord<Kokkos::UmpireSpace, void>::get_label() const
    } else {
       SharedAllocationHeader header;
 
-     Kokkos::Impl::DeepCopy<Kokkos::HostSpace, Kokkos::UmpireSpace>(
-         &header, RecordBase::head(), sizeof(SharedAllocationHeader));
+    Kokkos::Impl::umpire_to_host_deep_copy(
+                  &header, RecordBase::head(), sizeof(SharedAllocationHeader), false);
 
      return std::string(header.m_label);
    }
@@ -240,9 +367,11 @@ SharedAllocationRecord<Kokkos::UmpireSpace, void>::SharedAllocationRecord(
     // Set last element zero, in case c_str is too long
     header.m_label[SharedAllocationHeader::maximum_label_length - 1] = (char)0;
 
+    printf("copy shared alloc header to umpire space \n");
+
     // Copy to device memory
-    Kokkos::Impl::DeepCopy<Kokkos::UmpireSpace, HostSpace>(RecordBase::m_alloc_ptr, &header,
-                                               sizeof(SharedAllocationHeader));
+    Kokkos::Impl::host_to_umpire_deep_copy(RecordBase::m_alloc_ptr, &header,
+                                               sizeof(SharedAllocationHeader), false);
   }
 }
 
@@ -299,8 +428,8 @@ SharedAllocationRecord<Kokkos::UmpireSpace, void>::get_record(void *alloc_ptr) {
       alloc_ptr ? Header::get_header(alloc_ptr) : (Header *)0;
 
   if (alloc_ptr) {
-    Kokkos::Impl::DeepCopy<HostSpace, Kokkos::UmpireSpace>(
-        &head, head_dev, sizeof(SharedAllocationHeader));
+    Kokkos::Impl::umpire_to_host_deep_copy(
+                      &head, head_dev, sizeof(SharedAllocationHeader), false);
   }
 
   RecordUmpire *const record =
