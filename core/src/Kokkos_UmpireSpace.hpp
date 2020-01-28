@@ -66,11 +66,11 @@ namespace Kokkos {
 
 namespace Impl {
 
-   void umpire_to_umpire_deep_copy( void *, const void *, size_t, bool offset = true );
-   void host_to_umpire_deep_copy( void *, const void *, size_t, bool offset = true );
-   void umpire_to_host_deep_copy( void *, const void *, size_t, bool offset = true );
+void umpire_to_umpire_deep_copy(void*, const void*, size_t, bool offset = true);
+void host_to_umpire_deep_copy(void*, const void*, size_t, bool offset = true);
+void umpire_to_host_deep_copy(void*, const void*, size_t, bool offset = true);
 
-}
+}  // namespace Impl
 
 /// \class UmpireSpace
 /// \brief Memory management for host memory.
@@ -80,16 +80,15 @@ namespace Impl {
 class UmpireSpace {
  public:
   //! Tag this class as a kokkos memory space
-  using memory_space = UmpireSpace;
-  using size_type = size_t;
+  using memory_space    = UmpireSpace;
+  using size_type       = size_t;
   using execution_space = Kokkos::DefaultExecutionSpace;
 
   //! This memory space preferred device_type
   typedef Kokkos::Device<execution_space, memory_space> device_type;
 
   /**\brief  Default memory space instance */
-  explicit UmpireSpace(const char * name_) : m_AllocatorName(name_) {
-  }
+  explicit UmpireSpace(const char* name_) : m_AllocatorName(name_) {}
   UmpireSpace();
   UmpireSpace(UmpireSpace&& rhs)      = default;
   UmpireSpace(const UmpireSpace& rhs) = default;
@@ -108,22 +107,20 @@ class UmpireSpace {
 
   static umpire::Allocator get_allocator(const char* name);
 
-  template<class MemorySpace>
-  static inline const char * umpire_space_name(const MemorySpace & default_device) {
-     if ( std::is_same<MemorySpace, Kokkos::HostSpace>::value )
-        return "HOST";
+  template <class MemorySpace>
+  static inline const char* umpire_space_name(
+      const MemorySpace& default_device) {
+    if (std::is_same<MemorySpace, Kokkos::HostSpace>::value) return "HOST";
 #if defined(KOKKOS_ENABLE_CUDA)
-     if ( std::is_same<MemorySpace, Kokkos::CudaSpace>::value )
-        return "DEVICE";
-     if ( std::is_same<MemorySpace, Kokkos::CudaUVMSpace>::value )
-        return "UM";
-     if ( std::is_same<MemorySpace, Kokkos::CudaHostPinnedSpace>::value )
-        return "HOSTPINNED";
+    if (std::is_same<MemorySpace, Kokkos::CudaSpace>::value) return "DEVICE";
+    if (std::is_same<MemorySpace, Kokkos::CudaUVMSpace>::value) return "UM";
+    if (std::is_same<MemorySpace, Kokkos::CudaHostPinnedSpace>::value)
+      return "HOSTPINNED";
 #endif
   }
 
   bool is_host_accessible_space() const {
-     return ( strncmp( m_AllocatorName, "HOST", 4 ) == 0 );
+    return (strncmp(m_AllocatorName, "HOST", 4) == 0);
   }
 
  private:
