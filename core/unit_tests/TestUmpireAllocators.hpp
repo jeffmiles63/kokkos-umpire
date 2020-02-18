@@ -4,23 +4,25 @@ namespace Test {
 
 template <class T>
 struct TestUmpireAllocators {
-  const int N          = 100;
-  using mem_space      = Kokkos::UmpireSpace;
-  using view_type      = Kokkos::View<T*, mem_space>;
-  using exec_device    = Kokkos::DefaultExecutionSpace;
-  using exec_host      = Kokkos::DefaultHostExecutionSpace;
-  using default_device = typename exec_device::memory_space;
-  using default_host   = typename exec_host::memory_space;
+  const int N            = 100;
+  using exec_device      = Kokkos::DefaultExecutionSpace;
+  using exec_host        = Kokkos::DefaultHostExecutionSpace;
+  using default_device   = typename exec_device::memory_space;
+  using default_host     = typename exec_host::memory_space;
+  using mem_space_host   = Kokkos::UmpireSpace<default_host>;
+  using mem_space_device = Kokkos::UmpireSpace<default_device>;
+  using host_view_type   = Kokkos::View<T*, mem_space_host>;
+  using device_view_type = Kokkos::View<T*, mem_space_device>;
   using view_ctor_prop_device =
-      Kokkos::Impl::ViewCtorProp<std::string, mem_space, exec_device>;
+      Kokkos::Impl::ViewCtorProp<std::string, mem_space_device>;
   using view_ctor_prop_host =
-      Kokkos::Impl::ViewCtorProp<std::string, mem_space, exec_host>;
+      Kokkos::Impl::ViewCtorProp<std::string, mem_space_host>;
 
   void run_tests() {
     // no pooling
     //
-    mem_space no_alloc_host(mem_space::umpire_space_name(default_host()));
-    mem_space no_alloc_device(mem_space::umpire_space_name(default_device()));
+    mem_space_host no_alloc_host;
+    mem_space_device no_alloc_device;
 
     // direct memory allocation (not really a case we should share...)
     double* ptr = (double*)no_alloc_device.allocate(N * sizeof(double));
@@ -29,9 +31,8 @@ struct TestUmpireAllocators {
         KOKKOS_LAMBDA(const int i) { ptr[i] = (double)i; });
 
     // allocate views and mirrors
-    view_type v1(view_ctor_prop_device("v1", no_alloc_device, exec_device()),
-                 N);
-    view_type v2(view_ctor_prop_host("v2", no_alloc_host, exec_host()), N);
+    device_view_type v1(view_ctor_prop_device("v1", no_alloc_device), N);
+    host_view_type v2(view_ctor_prop_host("v2", no_alloc_host), N);
 
     auto h_v1 = Kokkos::create_mirror(Kokkos::HostSpace(), v1);
     auto h_v2 = Kokkos::create_mirror(Kokkos::HostSpace(), v2);

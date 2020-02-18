@@ -229,17 +229,13 @@ void umpire_to_host_deep_copy(void *dst, const void *src, size_t size,
                 const_cast<umpire::util::AllocationRecord *>(&dst_alloc_record),
                 size);
 }
-}  // namespace Impl
 
-umpire::Allocator UmpireSpace::get_allocator(const char *name) {
+umpire::Allocator get_allocator(const char *name) {
   auto &rm = umpire::ResourceManager::getInstance();
   return rm.getAllocator(name);
 }
 
-/* Default allocation mechanism, assume the Umpire allocator is HOST */
-UmpireSpace::UmpireSpace() : m_AllocatorName("HOST") {}
-
-void *UmpireSpace::allocate(const size_t arg_alloc_size) const {
+void *umpire_allocate(const char *name, const size_t arg_alloc_size) {
   static_assert(sizeof(void *) == sizeof(uintptr_t),
                 "Error sizeof(void*) != sizeof(uintptr_t)");
 
@@ -255,7 +251,7 @@ void *UmpireSpace::allocate(const size_t arg_alloc_size) const {
     // Over-allocate to and round up to guarantee proper alignment.
     size_t size_padded = arg_alloc_size + sizeof(void *) + alignment;
 
-    auto allocator = get_allocator(m_AllocatorName);
+    auto allocator = get_allocator(name);
     ptr            = allocator.allocate(size_padded);
   }
 
@@ -272,218 +268,16 @@ void *UmpireSpace::allocate(const size_t arg_alloc_size) const {
   return ptr;
 }
 
-void UmpireSpace::deallocate(void *const arg_alloc_ptr, const size_t) const {
+void umpire_deallocate(const char *name, void *const arg_alloc_ptr,
+                       const size_t) {
   if (arg_alloc_ptr) {
-    auto allocator = get_allocator(m_AllocatorName);
+    auto allocator = get_allocator(name);
     allocator.deallocate(const_cast<void *>(arg_alloc_ptr));
   }
 }
 
-}  // namespace Kokkos
-
-//----------------------------------------------------------------------------
-//----------------------------------------------------------------------------
-
-namespace Kokkos {
-namespace Impl {
-
-#ifdef KOKKOS_DEBUG
-SharedAllocationRecord<void, void>
-    SharedAllocationRecord<Kokkos::UmpireSpace, void>::s_root_record;
-#endif
-
-void SharedAllocationRecord<Kokkos::UmpireSpace, void>::deallocate(
-    SharedAllocationRecord<void, void> *arg_rec) {
-  delete static_cast<SharedAllocationRecord *>(arg_rec);
-}
-
-SharedAllocationRecord<Kokkos::UmpireSpace, void>::~SharedAllocationRecord() {
-#if defined(KOKKOS_ENABLE_PROFILING)
-  if (Kokkos::Profiling::profileLibraryLoaded()) {
-    Kokkos::Profiling::deallocateData(
-        Kokkos::Profiling::SpaceHandle(Kokkos::UmpireSpace::name()),
-        RecordBase::m_alloc_ptr->m_label, data(), size());
-  }
-#endif
-
-  m_space.deallocate(SharedAllocationRecord<void, void>::m_alloc_ptr,
-                     SharedAllocationRecord<void, void>::m_alloc_size);
-}
-
-SharedAllocationHeader *_do_allocation(Kokkos::UmpireSpace const &space,
-                                       std::string const &label,
-                                       size_t alloc_size) {
-  try {
-    return reinterpret_cast<SharedAllocationHeader *>(
-        space.allocate(alloc_size));
-  } catch (Experimental::RawMemoryAllocationFailure const &failure) {
-    if (failure.failure_mode() == Experimental::RawMemoryAllocationFailure::
-                                      FailureMode::AllocationNotAligned) {
-      // TODO: delete the misaligned memory
-    }
-
-    std::cerr << "Kokkos failed to allocate memory for label \"" << label
-              << "\".  Allocation using MemorySpace named \"" << space.name()
-              << " failed with the following error:  ";
-    failure.print_error_message(std::cerr);
-    std::cerr.flush();
-    Kokkos::Impl::throw_runtime_exception("Memory allocation failure");
-  }
-  return nullptr;  // unreachable
-}
-
-std::string SharedAllocationRecord<Kokkos::UmpireSpace, void>::get_label()
-    const {
-  if (m_space.is_host_accessible_space()) {
-    return std::string(RecordBase::head()->m_label);
-  } else {
-    // we don't know where the umpire pointer lives, so it is best to create a
-    // local header, then deep copy from umpire to host and use the local.
-    SharedAllocationHeader header;
-    Kokkos::Impl::umpire_to_host_deep_copy(
-        &header, RecordBase::head(), sizeof(SharedAllocationHeader), false);
-
-    return std::string(header.m_label);
-  }
-}
-
-SharedAllocationRecord<Kokkos::UmpireSpace, void>::SharedAllocationRecord(
-    const Kokkos::UmpireSpace &arg_space, const std::string &arg_label,
-    const size_t arg_alloc_size,
-    const SharedAllocationRecord<void, void>::function_type arg_dealloc)
-    // Pass through allocated [ SharedAllocationHeader , user_memory ]
-    // Pass through deallocation function
-    : SharedAllocationRecord<void, void>(
-#ifdef KOKKOS_DEBUG
-          &SharedAllocationRecord<Kokkos::UmpireSpace, void>::s_root_record,
-#endif
-          Impl::checked_allocation_with_header(arg_space, arg_label,
-                                               arg_alloc_size),
-          sizeof(SharedAllocationHeader) + arg_alloc_size, arg_dealloc),
-      m_space(arg_space) {
-#if defined(KOKKOS_ENABLE_PROFILING)
-  if (Kokkos::Profiling::profileLibraryLoaded()) {
-    Kokkos::Profiling::allocateData(
-        Kokkos::Profiling::SpaceHandle(arg_space.name()), arg_label, data(),
-        arg_alloc_size);
-  }
-#endif
-
-  // is_host_accessible_space implies that header is in host space, so we
-  // can access it directly
-  if (m_space.is_host_accessible_space()) {
-    // Fill in the Header information
-    RecordBase::m_alloc_ptr->m_record =
-        static_cast<SharedAllocationRecord<void, void> *>(this);
-
-    strncpy(RecordBase::m_alloc_ptr->m_label, arg_label.c_str(),
-            SharedAllocationHeader::maximum_label_length);
-    // Set last element zero, in case c_str is too long
-    RecordBase::m_alloc_ptr
-        ->m_label[SharedAllocationHeader::maximum_label_length - 1] = (char)0;
-  } else {
-    SharedAllocationHeader header;
-
-    // Fill in the Header information
-    header.m_record = static_cast<SharedAllocationRecord<void, void> *>(this);
-
-    strncpy(header.m_label, arg_label.c_str(),
-            SharedAllocationHeader::maximum_label_length);
-    // Set last element zero, in case c_str is too long
-    header.m_label[SharedAllocationHeader::maximum_label_length - 1] = (char)0;
-
-    // Copy to device memory
-    Kokkos::Impl::host_to_umpire_deep_copy(RecordBase::m_alloc_ptr, &header,
-                                           sizeof(SharedAllocationHeader),
-                                           false);
-  }
-}
-
-//----------------------------------------------------------------------------
-
-void *SharedAllocationRecord<Kokkos::UmpireSpace, void>::allocate_tracked(
-    const Kokkos::UmpireSpace &arg_space, const std::string &arg_alloc_label,
-    const size_t arg_alloc_size) {
-  if (!arg_alloc_size) return (void *)nullptr;
-
-  SharedAllocationRecord *const r =
-      allocate(arg_space, arg_alloc_label, arg_alloc_size);
-
-  RecordBase::increment(r);
-
-  return r->data();
-}
-
-void SharedAllocationRecord<Kokkos::UmpireSpace, void>::deallocate_tracked(
-    void *const arg_alloc_ptr) {
-  if (arg_alloc_ptr != 0) {
-    SharedAllocationRecord *const r = get_record(arg_alloc_ptr);
-
-    RecordBase::decrement(r);
-  }
-}
-
-void *SharedAllocationRecord<Kokkos::UmpireSpace, void>::reallocate_tracked(
-    void *const arg_alloc_ptr, const size_t arg_alloc_size) {
-  SharedAllocationRecord *const r_old = get_record(arg_alloc_ptr);
-  SharedAllocationRecord *const r_new =
-      allocate(r_old->m_space, r_old->get_label(), arg_alloc_size);
-
-  Kokkos::Impl::DeepCopy<Kokkos::UmpireSpace, Kokkos::UmpireSpace>(
-      r_new->data(), r_old->data(), std::min(r_old->size(), r_new->size()));
-
-  RecordBase::increment(r_new);
-  RecordBase::decrement(r_old);
-
-  return r_new->data();
-}
-
-SharedAllocationRecord<Kokkos::UmpireSpace, void> *
-SharedAllocationRecord<Kokkos::UmpireSpace, void>::get_record(void *alloc_ptr) {
-  using Header       = SharedAllocationHeader;
-  using RecordUmpire = SharedAllocationRecord<Kokkos::UmpireSpace, void>;
-
-  // Copy the header from the allocation
-  // cannot determine if it is host or device statically, so we will always deep
-  // copy it....
-  Header head;
-
-  Header const *const head_dev =
-      alloc_ptr ? Header::get_header(alloc_ptr) : (Header *)0;
-
-  if (alloc_ptr) {
-    Kokkos::Impl::umpire_to_host_deep_copy(
-        &head, head_dev, sizeof(SharedAllocationHeader), false);
-  }
-
-  RecordUmpire *const record = alloc_ptr
-                                   ? static_cast<RecordUmpire *>(head.m_record)
-                                   : (RecordUmpire *)0;
-
-  if (!alloc_ptr || record->m_alloc_ptr != head_dev) {
-    Kokkos::Impl::throw_runtime_exception(std::string(
-        "Kokkos::Impl::SharedAllocationRecord< Kokkos::UmpireSpace , "
-        "void >::get_record ERROR"));
-  }
-  return record;
-}
-
-// Iterate records to print orphaned memory ...
-#ifdef KOKKOS_DEBUG
-void SharedAllocationRecord<Kokkos::UmpireSpace, void>::print_records(
-    std::ostream &s, const Kokkos::UmpireSpace &, bool detail) {
-  SharedAllocationRecord<void, void>::print_host_accessible_records(
-      s, "UmpireSpace", &s_root_record, detail);
-}
-#else
-void SharedAllocationRecord<Kokkos::UmpireSpace, void>::print_records(
-    std::ostream &, const Kokkos::UmpireSpace &, bool) {
-  throw_runtime_exception(
-      "SharedAllocationRecord<UmpireSpace>::print_records only works with "
-      "KOKKOS_DEBUG enabled");
-}
-#endif
-
 }  // namespace Impl
-
 }  // namespace Kokkos
+
+//----------------------------------------------------------------------------
+//----------------------------------------------------------------------------

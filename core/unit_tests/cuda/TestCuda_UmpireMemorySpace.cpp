@@ -47,7 +47,12 @@
 namespace Test {
 
 TEST(TEST_CATEGORY, umpire_space_shared_alloc) {
-  test_shared_alloc<Kokkos::UmpireSpace, Kokkos::DefaultHostExecutionSpace>();
+  test_shared_alloc<Kokkos::UmpireCudaSpace,
+                    Kokkos::DefaultHostExecutionSpace>();
+  test_shared_alloc<Kokkos::UmpireCudaUVMSpace,
+                    Kokkos::DefaultHostExecutionSpace>();
+  test_shared_alloc<Kokkos::UmpireCudaHostPinnedSpace,
+                    Kokkos::DefaultHostExecutionSpace>();
 }
 
 }  // namespace Test
